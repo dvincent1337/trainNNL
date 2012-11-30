@@ -1,6 +1,7 @@
 package GUI;
 import java.awt.BorderLayout;
 import java.awt.Color;
+import java.awt.Graphics2D;
 import java.awt.GridLayout;
 import java.awt.color.ColorSpace;
 import java.awt.event.ActionEvent;
@@ -796,8 +797,9 @@ public class InstTrainNNL extends JFrame
 		// Also assumes that widthNNL and heightNNL are defined.
 		//Takes the image and adds it to the X and Y training examples.
 		
-		
-		
+		DoubleMatrix X = generateInputMatrix(image);
+		DoubleMatrix Y = generateOutputMatrix(type,X.getRows());
+		addToMatracies(X,Y);
 		
 		
 	}
@@ -827,7 +829,6 @@ public class InstTrainNNL extends JFrame
 
 	private DoubleMatrix generateInputMatrix(BufferedImage image)
 	{
-		int[][] pixleArray = bufferedImgToIntArray(image);
 		int imageWidth = image.getWidth();
 		int imageHeight = image.getHeight();
 		
@@ -841,13 +842,95 @@ public class InstTrainNNL extends JFrame
 		boolean scaleVertically = true; //Scale Vertically unless horizontally is better.
 		if (Zw<Zh)
 			scaleVertically = false;
-		
+		float scale = 0;
 		if (scaleVertically)
 		{
-			//Scaling vertically. make sure that the new image's height matches NNL_height
+			//Scaling vertically changes the least amount of info. 
+			//Also check to see if the new width is not too big
 			
+			scale = NNL_height/imageHeight;
+
+			if (imageWidth*scale>NNL_width)
+				scale = NNL_width/imageWidth;
+			
+			//Scale is good.
 		}
-		return null;//RETURN NEW DATA
+		else
+		{
+			//Scaling horizontally changes the least amount of info. 
+			//Also check to see if the new width is not too big
+			
+			scale = NNL_width/imageWidth;
+			
+			if(imageHeight*scale > NNL_height)
+				scale = NNL_height/imageHeight;
+			
+			//scale is good.
+		}
+		//Perform the scale, then place the new image inside the NNL space.
+		//Generate new examples by either:
+		//if new height == nnl height, go from left to right,
+		//if new width  == nnl width, go from top to bottom,
+		//fill in extraspace with predefined color
+		int newWidth =  (int) Math.ceil(scale*imageWidth);
+		int newHeight = (int) Math.ceil(scale*imageHeight);
+		
+		BufferedImage scaledImage = new BufferedImage(newWidth,newHeight, BufferedImage.TYPE_BYTE_GRAY);
+		Graphics2D grph = (Graphics2D) scaledImage.getGraphics();
+		grph.scale(scale,scale);
+		grph.drawImage(image, 0, 0, null);
+		grph.dispose();
+		
+		//see if: image fits perfectly, or which component matches the nnl space
+		DoubleMatrix X = null;
+		int exampleCount = 0;
+		int pixelOffset = 3;
+		int [][] pixelArray = bufferedImgToIntArray(scaledImage);
+		
+		if (newWidth == NNL_width && newHeight == NNL_height)
+		{
+			X = new DoubleMatrix(from2DArrayTo1D(pixelArray));
+			exampleCount++;
+		}
+		else if (newWidth == NNL_width)
+		{
+			//Top to bottom
+			while ( (pixelOffset*exampleCount+newHeight ) <= NNL_height)
+			{
+				DoubleMatrix Xx = new DoubleMatrix(from2DArrayTo1D(padWithExtraColor(
+						pixelArray,	NNL_width,NNL_height,0,exampleCount*pixelOffset,extraColor)));
+				if (exampleCount == 0)
+					X = Xx;
+				else
+					X = DoubleMatrix.concatVertically(X,Xx);
+
+				exampleCount++;
+			}
+		}
+		else if (newHeight == NNL_height)
+		{
+			//Left to right
+			while ( (pixelOffset*exampleCount+newWidth ) <= NNL_width)
+			{
+				DoubleMatrix Xx = new DoubleMatrix(from2DArrayTo1D(padWithExtraColor(
+						pixelArray,	NNL_width,NNL_height,exampleCount*pixelOffset,0,extraColor)));
+				if (exampleCount == 0)
+					X = Xx;
+				else
+					X = DoubleMatrix.concatVertically(X,Xx);
+
+				exampleCount++;
+			}
+		}
+		else 
+		{
+			//This should never happen.
+			if (debug)
+				System.out.println("ERROR: problem with image scaling, height or width don't match");
+		}
+	
+		
+		return X;//RETURN NEW DATA
 	}
 	
 	private void addToMatracies(DoubleMatrix inputExample, DoubleMatrix outputExample)
@@ -871,21 +954,7 @@ public class InstTrainNNL extends JFrame
 			}
 		}
 	}
-	
-	private static double [] []  intArrayToDoubleArray(int [] [] inputArray)
-	{
-		int rows = inputArray.length;
-		int columns = inputArray[0].length;
-		double [][] output = new double[rows][columns];
-		for (int i = 0; i<rows;i++)
-		{
-			for (int j = 0; j<columns;j++)
-			{
-				output[i][j] = inputArray[i][j]  ;
-			}
-		}
-		return output;
-	}
+
 	private static double [] [] padWithExtraColor(int[] [] inputArray, int newWidth, int newHeight,int offsetX,int offsetY, int colorValue)
 	{
 		//the dimentions of inputarray size;
@@ -906,27 +975,27 @@ public class InstTrainNNL extends JFrame
 		}
 		return outputArray;
 	}
-	private static double [] [] padWithExtraColor(double[] [] inputArray, int newWidth, int newHeight, int colorValue)
+
+	private static double [] [] from2DArrayTo1D(double [] [] inputArray)
 	{
-		//the dimentions of inputarray size;
-		int inWidth = inputArray.length;
-		int inHeight = inputArray[0].length;
-		
-		double [] []  outputArray = new double[newWidth][newHeight];
-		for (int i = 0; i < newWidth;i++)
+		// put each row into one row.
+		int width = inputArray.length;
+		int height = inputArray[0].length;
+		int len = width*height;
+		double [][] output= new double[1][len];
+		int count = 0;
+		for (int i = 0; i<width;i++)
 		{
-			for (int j = 0; j < newWidth;j++)
+			for (int j = 0; j<height;j++)
 			{
-				 if (i >= inWidth || j >= inHeight)
-					 outputArray[i][j] = colorValue;
-				 else
-					 outputArray[i][j] = inputArray[i][j];
-				 
+				output[0][count]=inputArray[i][j];
+				count++;
 			}
 		}
-		return outputArray;
+		return output;
+		
 	}
-	private static double [][] from2DArrayTo1D(double [] [] inputArray)
+	private static double [] [] from2DArrayTo1D(int [] [] inputArray)
 	{
 		// put each row into one row.
 		int width = inputArray.length;
